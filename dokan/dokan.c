@@ -1,7 +1,7 @@
 /*
   Dokan : user-mode file system library for Windows
 
-  Copyright (C) 2015 - 2017 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
+  Copyright (C) 2015 - 2018 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
   Copyright (C) 2007 - 2011 Hiroki Asakawa <info@dokan-dev.net>
 
   http://dokan-dev.github.io
@@ -98,8 +98,8 @@ BOOL IsMountPointDriveLetter(LPCWSTR mountPoint) {
 }
 
 BOOL IsValidDriveLetter(WCHAR DriveLetter) {
-  return (L'b' <= DriveLetter && DriveLetter <= L'z') ||
-         (L'B' <= DriveLetter && DriveLetter <= L'Z');
+  return (L'a' <= DriveLetter && DriveLetter <= L'z') ||
+         (L'A' <= DriveLetter && DriveLetter <= L'Z');
 }
 
 BOOL CheckDriveLetterAvailability(WCHAR DriveLetter) {
@@ -111,6 +111,8 @@ BOOL CheckDriveLetterAvailability(WCHAR DriveLetter) {
   HANDLE device = NULL;
   dosDevice[4] = driveLetter;
   driveName[0] = driveLetter;
+
+  DokanMountPointsCleanUp();
 
   if (!IsValidDriveLetter(driveLetter)) {
     DbgPrintW(L"CheckDriveLetterAvailability failed, bad drive letter %c\n",
@@ -238,8 +240,8 @@ int DOKANAPI DokanMain(PDOKAN_OPTIONS DokanOptions,
   if (DokanOptions->MountPoint != NULL) {
     wcscpy_s(instance->MountPoint, sizeof(instance->MountPoint) / sizeof(WCHAR),
              DokanOptions->MountPoint);
-    if (IsMountPointDriveLetter(instance->MountPoint)) {
-      if (!CheckDriveLetterAvailability(instance->MountPoint[0])) {
+    if (IsMountPointDriveLetter(instance->MountPoint)
+      && !CheckDriveLetterAvailability(instance->MountPoint[0])) {
         DokanDbgPrint("Dokan Error: CheckDriveLetterAvailability Failed\n");
         CloseHandle(device);
 
@@ -248,7 +250,6 @@ int DOKANAPI DokanMain(PDOKAN_OPTIONS DokanOptions,
         LeaveCriticalSection(&g_InstanceCriticalSection);
         return DOKAN_MOUNT_ERROR;
       }
-    }
   }
 
   if (DokanOptions->UNCName != NULL) {
@@ -729,6 +730,12 @@ BOOL DOKANAPI DokanSetDebugMode(ULONG Mode) {
                       sizeof(ULONG), NULL, 0, &returnedLength);
 }
 
+BOOL DOKANAPI DokanMountPointsCleanUp() {
+    ULONG returnedLength;
+    return SendToDevice(DOKAN_GLOBAL_DEVICE_NAME, IOCTL_MOUNTPOINT_CLEANUP, NULL,
+        0, NULL, 0, &returnedLength);
+}
+
 BOOL SendToDevice(LPCWSTR DeviceName, DWORD IoControlCode, PVOID InputBuffer,
                   ULONG InputLength, PVOID OutputBuffer, ULONG OutputLength,
                   PULONG ReturnedLength) {
@@ -843,46 +850,12 @@ BOOL WINAPI DllMain(HINSTANCE Instance, DWORD Reason, LPVOID Reserved) {
   return TRUE;
 }
 
-// We are using DesiredAccess directly from the IRP_MJ_CREATE.
-// This DesiredAccess has been converted from generic rights (user CreateFile request) to standard rights.
-// https://msdn.microsoft.com/windows/hardware/drivers/ifs/access-mask
-// TODO Merge it with DokanMapKernelToUserCreateFileFlags for Dokan 1.1.0 (break API)
-ACCESS_MASK DOKANAPI
-DokanMapStandardToGenericAccess(ACCESS_MASK DesiredAccess) {
-  BOOL genericRead = FALSE, genericWrite = FALSE, genericExecute = FALSE,
-       genericAll = FALSE;
-  if ((DesiredAccess & FILE_GENERIC_READ) == FILE_GENERIC_READ) {
-    DesiredAccess |= GENERIC_READ;
-    genericRead = TRUE;
-  }
-  if ((DesiredAccess & FILE_GENERIC_WRITE) == FILE_GENERIC_WRITE) {
-    DesiredAccess |= GENERIC_WRITE;
-    genericWrite = TRUE;
-  }
-  if ((DesiredAccess & FILE_GENERIC_EXECUTE) == FILE_GENERIC_EXECUTE) {
-    DesiredAccess |= GENERIC_EXECUTE;
-    genericExecute = TRUE;
-  }
-  if ((DesiredAccess & FILE_ALL_ACCESS) == FILE_ALL_ACCESS) {
-    DesiredAccess |= GENERIC_ALL;
-    genericAll = TRUE;
-  }
-
-  if (genericRead)
-    DesiredAccess &= ~FILE_GENERIC_READ;
-  if (genericWrite)
-    DesiredAccess &= ~FILE_GENERIC_WRITE;
-  if (genericExecute)
-    DesiredAccess &= ~FILE_GENERIC_EXECUTE;
-  if (genericAll)
-    DesiredAccess &= ~FILE_ALL_ACCESS;
-
-  return DesiredAccess;
-}
-
 void DOKANAPI DokanMapKernelToUserCreateFileFlags(
-    ULONG FileAttributes, ULONG CreateOptions, ULONG CreateDisposition,
-    DWORD *outFileAttributesAndFlags, DWORD *outCreationDisposition) {
+	ACCESS_MASK DesiredAccess, ULONG FileAttributes, ULONG CreateOptions, ULONG CreateDisposition,
+	ACCESS_MASK* outDesiredAccess, DWORD *outFileAttributesAndFlags, DWORD *outCreationDisposition) {
+	BOOL genericRead = FALSE, genericWrite = FALSE, genericExecute = FALSE,
+		genericAll = FALSE;
+
   if (outFileAttributesAndFlags) {
 
     *outFileAttributesAndFlags = FileAttributes;
@@ -934,5 +907,36 @@ void DOKANAPI DokanMapKernelToUserCreateFileFlags(
       *outCreationDisposition = 0;
       break;
     }
+  }
+
+  if (outDesiredAccess) {
+
+	  *outDesiredAccess = DesiredAccess;
+
+	  if ((*outDesiredAccess & FILE_GENERIC_READ) == FILE_GENERIC_READ) {
+		  *outDesiredAccess |= GENERIC_READ;
+		  genericRead = TRUE;
+	  }
+	  if ((*outDesiredAccess & FILE_GENERIC_WRITE) == FILE_GENERIC_WRITE) {
+		  *outDesiredAccess |= GENERIC_WRITE;
+		  genericWrite = TRUE;
+	  }
+	  if ((*outDesiredAccess & FILE_GENERIC_EXECUTE) == FILE_GENERIC_EXECUTE) {
+		  *outDesiredAccess |= GENERIC_EXECUTE;
+		  genericExecute = TRUE;
+	  }
+	  if ((*outDesiredAccess & FILE_ALL_ACCESS) == FILE_ALL_ACCESS) {
+		  *outDesiredAccess |= GENERIC_ALL;
+		  genericAll = TRUE;
+	  }
+
+	  if (genericRead)
+		  *outDesiredAccess &= ~FILE_GENERIC_READ;
+	  if (genericWrite)
+		  *outDesiredAccess &= ~FILE_GENERIC_WRITE;
+	  if (genericExecute)
+		  *outDesiredAccess &= ~FILE_GENERIC_EXECUTE;
+	  if (genericAll)
+		  *outDesiredAccess &= ~FILE_ALL_ACCESS;
   }
 }

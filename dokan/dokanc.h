@@ -1,7 +1,7 @@
 /*
   Dokan : user-mode file system library for Windows
 
-  Copyright (C) 2015 - 2017 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
+  Copyright (C) 2015 - 2018 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
   Copyright (C) 2007 - 2011 Hiroki Asakawa <info@dokan-dev.net>
 
   http://dokan-dev.github.io
@@ -140,6 +140,8 @@ BOOL DOKANAPI DokanNetworkProviderInstall();
 BOOL DOKANAPI DokanNetworkProviderUninstall();
 
 BOOL DOKANAPI DokanSetDebugMode(ULONG Mode);
+
+BOOL DOKANAPI DokanMountPointsCleanUp();
 
 #ifdef __cplusplus
 }

@@ -1,7 +1,7 @@
 /*
   Dokan : user-mode file system library for Windows
 
-  Copyright (C) 2015 - 2017 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
+  Copyright (C) 2015 - 2018 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
   Copyright (C) 2007 - 2011 Hiroki Asakawa <info@dokan-dev.net>
 
   http://dokan-dev.github.io
@@ -31,7 +31,7 @@ THE SOFTWARE.
 
 #include "../dokan/dokan.h"
 #include "../dokan/dokanc.h"
-#include <Shlobj.h>
+#include <ShlObj.h>
 
 #define DOKAN_DRIVER_FULL_PATH                                                 \
   L"%SystemRoot%\\system32\\drivers\\dokan" DOKAN_MAJOR_API_VERSION L".sys"
@@ -129,7 +129,7 @@ int __cdecl wmain(int argc, PWCHAR argv[]) {
   fwprintf(stdout, L"Driver path: '%s'\n", driverFullPath);
 
   WCHAR option = GetOption(argc, argv, 1);
-  if (option == L'\0') {
+  if (option == L'\0' || option == L'?') {
     return ShowUsage();
   }
 
@@ -146,12 +146,14 @@ int __cdecl wmain(int argc, PWCHAR argv[]) {
     if (type == L'd') {
       return InstallDriver(driverFullPath);
     } else if (type == L'n') {
-      if (DokanNetworkProviderInstall())
+      if (DokanNetworkProviderInstall()) {
         fprintf(stdout, "network provider install ok\n");
-      else
+      } else {
         fprintf(stderr, "network provider install failed\n");
+        return EXIT_FAILURE;
+      }
     } else {
-      goto DEFAULT;
+      goto default_case;
     }
   } break;
 
@@ -162,29 +164,32 @@ int __cdecl wmain(int argc, PWCHAR argv[]) {
     } else if (type == L'n') {
       if (DokanNetworkProviderUninstall())
         fprintf(stdout, "network provider remove ok\n");
-      else
+      else {
         fprintf(stderr, "network provider remove failed\n");
+        return EXIT_FAILURE;
+      }
     } else {
-      goto DEFAULT;
+      goto default_case;
     }
   } break;
 
   case L'd': {
     WCHAR type = towlower(argv[2][0]);
     if (L'0' > type || type > L'9')
-      goto DEFAULT;
+      goto default_case;
 
     ULONG mode = type - L'0';
     if (DokanSetDebugMode(mode)) {
       fprintf(stdout, "set debug mode ok\n");
     } else {
       fprintf(stderr, "set debug mode failed\n");
+      return EXIT_FAILURE;
     }
   } break;
 
   case L'u': {
     if (argc < 3) {
-      goto DEFAULT;
+      goto default_case;
     }
     return Unmount(argv[2]);
   } break;
@@ -210,6 +215,8 @@ int __cdecl wmain(int argc, PWCHAR argv[]) {
       }
     } else {
       fwprintf(stderr, L"  Cannot retrieve mount point list.\n");
+      free(dokanControl);
+      return EXIT_FAILURE;
     }
     free(dokanControl);
   } break;
@@ -220,9 +227,10 @@ int __cdecl wmain(int argc, PWCHAR argv[]) {
     fprintf(stdout, "Dokan driver version : 0x%lx\n", DokanDriverVersion());
   } break;
 
-  DEFAULT:
   default:
+    default_case:
     fprintf(stderr, "Unknown option - Use /? to show usage\n");
+    return EXIT_FAILURE;
   }
 
   return EXIT_SUCCESS;

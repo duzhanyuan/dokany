@@ -1,7 +1,7 @@
 /*
   Dokan : user-mode file system library for Windows
 
-  Copyright (C) 2015 - 2017 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
+  Copyright (C) 2015 - 2018 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
   Copyright (C) 2007 - 2011 Hiroki Asakawa <info@dokan-dev.net>
 
   http://dokan-dev.github.io
@@ -131,7 +131,7 @@ NTSTATUS DokanOplockRequest(__in PIRP *pIrp) {
         || ((FsControlCode == FSCTL_REQUEST_OPLOCK) &&
             FlagOn(InputBuffer->Flags, REQUEST_OPLOCK_INPUT_FLAG_REQUEST))
 #endif
-            ) {
+    ) {
 
       AcquiredVcb = ExAcquireResourceSharedLite(&(Fcb->Vcb->Resource), TRUE);
 
@@ -163,7 +163,7 @@ NTSTATUS DokanOplockRequest(__in PIRP *pIrp) {
       } else {
         // Shouldn't be something like UncleanCount counter and not FileCount
         // here?
-        OplockCount = 0;//Fcb->FileCount;
+        OplockCount = 0; //Fcb->FileCount;
       }
     } else if ((FsControlCode == FSCTL_OPLOCK_BREAK_ACKNOWLEDGE) ||
                (FsControlCode == FSCTL_OPBATCH_ACK_CLOSE_PENDING) ||
@@ -173,7 +173,7 @@ NTSTATUS DokanOplockRequest(__in PIRP *pIrp) {
                || ((FsControlCode == FSCTL_REQUEST_OPLOCK) &&
                    FlagOn(InputBuffer->Flags, REQUEST_OPLOCK_INPUT_FLAG_ACK))
 #endif
-                   ) {
+    ) {
 
 #if (NTDDI_VERSION >= NTDDI_WIN7)
     } else if (FsControlCode == FSCTL_REQUEST_OPLOCK) {
@@ -627,6 +627,7 @@ NTSTATUS DokanMountVolume(__in PDEVICE_OBJECT DiskDevice, __in PIRP Irp) {
     RtlCopyMemory(dokanControl.UNCName, dcb->UNCName->Buffer,
                   dcb->UNCName->Length);
   }
+  dokanControl.SessionId = dcb->SessionId;
   mountEntry = FindMountEntry(dcb->Global, &dokanControl, TRUE);
   if (mountEntry != NULL) {
     mountEntry->MountControl.DeviceObject = volDeviceObject;

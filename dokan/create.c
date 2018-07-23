@@ -1,7 +1,7 @@
 /*
   Dokan : user-mode file system library for Windows
 
-  Copyright (C) 2015 - 2017 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
+  Copyright (C) 2015 - 2018 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
   Copyright (C) 2007 - 2011 Hiroki Asakawa <info@dokan-dev.net>
 
   http://dokan-dev.github.io
@@ -87,10 +87,17 @@ VOID SetIOSecurityContext(PEVENT_CONTEXT EventContext,
 }
 
 BOOL CreateSuccesStatusCheck(NTSTATUS status, ULONG disposition) {
-  return NT_SUCCESS(status) ||
-         (status == STATUS_OBJECT_NAME_COLLISION &&
-          (disposition == FILE_OPEN_IF || disposition == FILE_SUPERSEDE ||
-           disposition == FILE_OVERWRITE_IF));
+  if (NT_SUCCESS(status))
+    return TRUE;
+
+  // In case OPEN_ALWAYS & CREATE_ALWAYS are successfully opening an
+  // existing file, STATUS_OBJECT_NAME_COLLISION is returned instead of STATUS_SUCCESS.
+  if (status == STATUS_OBJECT_NAME_COLLISION &&
+    (disposition == FILE_OPEN_IF || disposition == FILE_SUPERSEDE ||
+      disposition == FILE_OVERWRITE_IF))
+    return TRUE;
+
+  return FALSE;
 }
 
 VOID DispatchCreate(HANDLE Handle, // This handle is not for a file. It is for
@@ -233,10 +240,9 @@ VOID DispatchCreate(HANDLE Handle, // This handle is not for a file. It is for
           EventContext->Operation.Create.ShareAccess, disposition, options,
           &fileInfo);
 
-    if (CreateSuccesStatusCheck(status, disposition)) {
-      if (!childExisted) {
+    if (CreateSuccesStatusCheck(status, disposition)
+      && !childExisted) {
         eventInfo.Operation.Create.Information = FILE_DOES_NOT_EXIST;
-      }
     }
   } else {
     status = STATUS_NOT_IMPLEMENTED;
@@ -290,16 +296,21 @@ VOID DispatchCreate(HANDLE Handle, // This handle is not for a file. It is for
                       ? FILE_LIST_DIRECTORY
                       : 0));
 
+      options |= FILE_OPEN_FOR_BACKUP_INTENT; //Enable open directory
+      options &= ~FILE_NON_DIRECTORY_FILE;    //Remove non dir flag
+
       status = DokanInstance->DokanOperations->ZwCreateFile(
           fileName, &ioSecurityContext, newDesiredAccess,
           EventContext->Operation.Create.FileAttributes,
-          EventContext->Operation.Create.ShareAccess, disposition,
-          options | FILE_OPEN_FOR_BACKUP_INTENT, &fileInfo);
+          EventContext->Operation.Create.ShareAccess, disposition, options,
+          &fileInfo);
 
       if (status == STATUS_SUCCESS) {
         DbgPrint("Parent give us the right to delete\n");
         eventInfo.Status = STATUS_SUCCESS;
         eventInfo.Operation.Create.Information = FILE_OPENED;
+      } else {
+        DbgPrint("Parent CreateFile failed status = %lx\n", status);
       }
     }
 
@@ -322,6 +333,9 @@ VOID DispatchCreate(HANDLE Handle, // This handle is not for a file. It is for
         }
       }
     }
+
+    if (disposition == FILE_OVERWRITE)
+      eventInfo.Operation.Create.Information = FILE_OVERWRITTEN;
 
     if (fileInfo.IsDirectory)
       eventInfo.Operation.Create.Flags |= DOKAN_FILE_DIRECTORY;

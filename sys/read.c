@@ -1,7 +1,7 @@
 /*
   Dokan : user-mode file system library for Windows
 
-  Copyright (C) 2015 - 2017 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
+  Copyright (C) 2015 - 2018 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
   Copyright (C) 2007 - 2011 Hiroki Asakawa <info@dokan-dev.net>
 
   http://dokan-dev.github.io
@@ -170,11 +170,9 @@ Return Value:
 
     if (!isPagingIo && (fileObject->SectionObjectPointer != NULL) &&
         (fileObject->SectionObjectPointer->DataSectionObject != NULL)) {
-      ExAcquireResourceExclusiveLite(&fcb->PagingIoResource, TRUE);
       CcFlushCache(&fcb->SectionObjectPointers,
                    &irpSp->Parameters.Read.ByteOffset,
                    irpSp->Parameters.Read.Length, NULL);
-      ExReleaseResourceLite(&fcb->PagingIoResource);
     }
 
     DokanFCBLockRO(fcb);
@@ -253,7 +251,7 @@ Return Value:
     // register this IRP to pending IPR list and make it pending status
     status = DokanRegisterPendingIrp(DeviceObject, Irp, eventContext, 0);
   } __finally {
-    if(fcbLocked)
+    if (fcbLocked)
       DokanFCBUnlock(fcb);
 
     DokanCompleteIrpRequest(Irp, status, readLength);
@@ -264,8 +262,9 @@ Return Value:
   return status;
 }
 
-VOID DokanCompleteRead(__in PIRP_ENTRY IrpEntry,
-                       __in PEVENT_INFORMATION EventInfo) {
+NTSTATUS DokanCompleteRead(__in PIRP_ENTRY IrpEntry,
+                           __in PEVENT_INFORMATION EventInfo,
+                           __in BOOLEAN Wait) {
   PIRP irp;
   PIO_STACK_LOCATION irpSp;
   NTSTATUS status = STATUS_SUCCESS;
@@ -274,6 +273,8 @@ VOID DokanCompleteRead(__in PIRP_ENTRY IrpEntry,
   PVOID buffer = NULL;
   PDokanCCB ccb;
   PFILE_OBJECT fileObject;
+
+  UNREFERENCED_PARAMETER(Wait);
 
   fileObject = IrpEntry->FileObject;
   ASSERT(fileObject != NULL);
@@ -330,8 +331,8 @@ VOID DokanCompleteRead(__in PIRP_ENTRY IrpEntry,
   }
 
   if (IrpEntry->Flags & DOKAN_MDL_ALLOCATED) {
-	  DokanFreeMdl(irp);
-	  IrpEntry->Flags &= ~DOKAN_MDL_ALLOCATED;
+    DokanFreeMdl(irp);
+    IrpEntry->Flags &= ~DOKAN_MDL_ALLOCATED;
   }
 
   if (NT_SUCCESS(status)) {
@@ -347,4 +348,5 @@ VOID DokanCompleteRead(__in PIRP_ENTRY IrpEntry,
   DokanCompleteIrpRequest(irp, status, readLength);
 
   DDbgPrint("<== DokanCompleteRead\n");
+  return STATUS_SUCCESS;
 }

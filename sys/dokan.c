@@ -1,7 +1,7 @@
 /*
   Dokan : user-mode file system library for Windows
 
-  Copyright (C) 2015 - 2017 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
+  Copyright (C) 2015 - 2018 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
   Copyright (C) 2007 - 2011 Hiroki Asakawa <info@dokan-dev.net>
 
   http://dokan-dev.github.io
@@ -473,12 +473,43 @@ VOID DokanNotifyReportChange0(__in PDokanFCB Fcb, __in PUNICODE_STRING FileName,
   ASSERT(Fcb != NULL);
   ASSERT(FileName != NULL);
 
-  // search the last "\"
-  nameOffset = (USHORT)(FileName->Length / sizeof(WCHAR) - 1);
-  for (; FileName->Buffer[nameOffset] != L'\\'; --nameOffset)
-    ;
-  nameOffset++; // the next is the begining of filename
+  if (DokanUnicodeStringChar(FileName, L':') != -1) { //FileStream
 
+    //Convert file action to stream action
+    switch (Action) {
+    case FILE_ACTION_ADDED:
+      Action = FILE_ACTION_ADDED_STREAM;
+      break;
+    case FILE_ACTION_REMOVED:
+      Action = FILE_ACTION_REMOVED_STREAM;
+      break;
+    case FILE_ACTION_MODIFIED:
+      Action = FILE_ACTION_MODIFIED_STREAM;
+      break;
+    default:
+      break;
+    }
+
+    //Convert file flag to stream flag
+    if (FlagOn(FilterMatch,
+               FILE_NOTIFY_CHANGE_DIR_NAME | FILE_NOTIFY_CHANGE_FILE_NAME))
+      SetFlag(FilterMatch, FILE_NOTIFY_CHANGE_STREAM_NAME);
+    if (FlagOn(FilterMatch, FILE_NOTIFY_CHANGE_SIZE))
+      SetFlag(FilterMatch, FILE_NOTIFY_CHANGE_STREAM_SIZE);
+    if (FlagOn(FilterMatch, FILE_NOTIFY_CHANGE_LAST_WRITE))
+      SetFlag(FilterMatch, FILE_NOTIFY_CHANGE_STREAM_WRITE);
+
+    //Cleanup file flag converted
+    ClearFlag(FilterMatch, ~(FILE_NOTIFY_CHANGE_STREAM_NAME |
+                             FILE_NOTIFY_CHANGE_STREAM_SIZE |
+                             FILE_NOTIFY_CHANGE_STREAM_WRITE));
+  }
+
+  nameOffset = (USHORT)(FileName->Length / sizeof(WCHAR) - 1);
+
+  // search the last "\" and then calculate the Offset in bytes
+  nameOffset = (USHORT)(DokanSearchWcharinUnicodeStringWithUlong(
+      FileName, L'\\', (ULONG)nameOffset, 1));
   nameOffset *= sizeof(WCHAR); // Offset is in bytes
 
   FsRtlNotifyFullReportChange(Fcb->Vcb->NotifySync, &Fcb->Vcb->DirNotifyList,

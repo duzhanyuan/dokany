@@ -55,8 +55,9 @@ static size_t get_utf8(const unsigned char *p, size_t len, ICONV_CHAR *out) {
   return len;
 }
 
-static size_t put_utf8(unsigned char *buf, ICONV_CHAR c) {
 #define MASK(n) ((0xffffffffu << (n)) & 0xffffffffu)
+
+static size_t put_utf8(unsigned char *buf, ICONV_CHAR c) {
   size_t o_len;
   unsigned mask;
 
@@ -312,7 +313,7 @@ static const struct errentry errtable[] = {
 };
 const int errtable_size = sizeof(errtable) / sizeof(errtable[0]);
 
-extern "C" int ntstatus_error_to_errno(int win_res) {
+extern "C" int ntstatus_error_to_errno(long win_res) {
   if (win_res == 0)
     return 0; // No error
 
@@ -324,7 +325,7 @@ extern "C" int ntstatus_error_to_errno(int win_res) {
   return EINVAL;
 }
 
-extern "C" int errno_to_ntstatus_error(int err) {
+extern "C" long errno_to_ntstatus_error(int err) {
   if (err == 0)
     return 0; // No error
 

@@ -1,7 +1,7 @@
 /*
   Dokan : user-mode file system library for Windows
 
-  Copyright (C) 2015 - 2017 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
+  Copyright (C) 2015 - 2018 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
   Copyright (C) 2007 - 2011 Hiroki Asakawa <info@dokan-dev.net>
 
   http://dokan-dev.github.io
@@ -178,14 +178,6 @@ typedef struct _IRP_LIST {
   KSPIN_LOCK ListLock;
 } IRP_LIST, *PIRP_LIST;
 
-typedef struct _DOKAN_CONTROL {
-  ULONG Type;            // File System Type
-  WCHAR MountPoint[260]; // Mount Point
-  WCHAR UNCName[64];
-  WCHAR DeviceName[64];        // Disk Device Name
-  PDEVICE_OBJECT DeviceObject; // Volume Device Object
-} DOKAN_CONTROL, *PDOKAN_CONTROL;
-
 typedef struct _MOUNT_ENTRY {
   LIST_ENTRY ListEntry;
   DOKAN_CONTROL MountControl;
@@ -266,7 +258,7 @@ typedef struct _DokanDiskControlBlock {
   CACHE_MANAGER_CALLBACKS CacheManagerNoOpCallbacks;
 
   ULONG IrpTimeout;
-
+  ULONG SessionId;
   IO_REMOVE_LOCK RemoveLock;
 
 } DokanDCB, *PDokanDCB;
@@ -306,6 +298,7 @@ typedef struct _DokanVolumeControlBlock {
 
 // Flags for device
 #define DCB_DELETE_PENDING 0x00000001
+#define DCB_MOUNTPOINT_DELETED 0x00000004
 
 typedef struct _DokanFileControlBlock {
   // Locking: Identifier is read-only, no locks needed.
@@ -356,6 +349,21 @@ typedef struct _DokanFileControlBlock {
   // uint32 OpenHandleCount;
 } DokanFCB, *PDokanFCB;
 
+#define DokanFCBTryLockRO(fcb, FCBAcquired) do{                                                                          \
+                                      KeEnterCriticalRegion();                                                    \
+                                      FCBAcquired = ExAcquireResourceSharedLite(fcb->AdvancedFCBHeader.Resource, FALSE); \
+                                      if (FALSE == FCBAcquired) {                                                        \
+                                         KeLeaveCriticalRegion();                                                 \
+                                      }                                                                           \
+                                    }while(0)
+
+#define DokanFCBTryLockRW(fcb, FCBAcquired) do{                                                                            \
+                                      KeEnterCriticalRegion();                                                      \
+                                      FCBAcquired = ExAcquireResourceExclusiveLite(fcb->AdvancedFCBHeader.Resource, FALSE);\
+                                      if (FALSE == FCBAcquired) {                                                          \
+                                         KeLeaveCriticalRegion();                                                   \
+                                      }                                                                             \
+                                    }while(0)
 #define DokanFCBLockRO(fcb) do { KeEnterCriticalRegion(); ExAcquireResourceSharedLite(fcb->AdvancedFCBHeader.Resource, TRUE); } while(0)
 #define DokanFCBLockRW(fcb) ExEnterCriticalRegionAndAcquireResourceExclusive(fcb->AdvancedFCBHeader.Resource)
 #define DokanFCBUnlock(fcb) ExReleaseResourceAndLeaveCriticalRegion(fcb->AdvancedFCBHeader.Resource)
@@ -409,13 +417,16 @@ typedef struct _IRP_ENTRY {
   ULONG Flags;
   LARGE_INTEGER TickCount;
   PIRP_LIST IrpList;
+  WORK_QUEUE_ITEM WorkQueueItem;
 } IRP_ENTRY, *PIRP_ENTRY;
 
 typedef struct _DEVICE_ENTRY {
   LIST_ENTRY ListEntry;
   PDEVICE_OBJECT DiskDeviceObject;
   PDEVICE_OBJECT VolumeDeviceObject;
+  ULONG SessionId;
   ULONG Counter;
+  UNICODE_STRING MountPoint;
 } DEVICE_ENTRY, *PDEVICE_ENTRY;
 
 typedef struct _DRIVER_EVENT_CONTEXT {
@@ -523,6 +534,10 @@ DRIVER_DISPATCH DokanResetPendingIrpTimeout;
 
 DRIVER_DISPATCH DokanGetAccessToken;
 
+LONG
+DokanUnicodeStringChar(__in PUNICODE_STRING UnicodeString,
+                            __in WCHAR Char);
+
 NTSTATUS
 DokanCheckShareAccess(_In_ PFILE_OBJECT FileObject, _In_ PDokanFCB FcbOrDcb,
                       _In_ ACCESS_MASK DesiredAccess, _In_ ULONG ShareAccess);
@@ -567,42 +582,54 @@ DokanRegisterPendingIrp(__in PDEVICE_OBJECT DeviceObject, __in PIRP Irp,
 VOID DokanEventNotification(__in PIRP_LIST NotifyEvent,
                             __in PEVENT_CONTEXT EventContext);
 
-VOID DokanCompleteDirectoryControl(__in PIRP_ENTRY IrpEntry,
-                                   __in PEVENT_INFORMATION EventInfo);
+NTSTATUS DokanCompleteDirectoryControl(__in PIRP_ENTRY IrpEntry,
+                                   __in PEVENT_INFORMATION EventInfo,
+                                   __in BOOLEAN Wait);
 
-VOID DokanCompleteRead(__in PIRP_ENTRY IrpEntry,
-                       __in PEVENT_INFORMATION EventInfo);
+NTSTATUS DokanCompleteRead(__in PIRP_ENTRY IrpEntry,
+                       __in PEVENT_INFORMATION EventInfo,
+                       __in BOOLEAN Wait);
 
-VOID DokanCompleteWrite(__in PIRP_ENTRY IrpEntry,
-                        __in PEVENT_INFORMATION EventInfo);
+NTSTATUS DokanCompleteWrite(__in PIRP_ENTRY IrpEntry,
+                        __in PEVENT_INFORMATION EventInfo,
+                        __in BOOLEAN Wait);
 
-VOID DokanCompleteQueryInformation(__in PIRP_ENTRY IrpEntry,
-                                   __in PEVENT_INFORMATION EventInfo);
+NTSTATUS DokanCompleteQueryInformation(__in PIRP_ENTRY IrpEntry,
+                                   __in PEVENT_INFORMATION EventInfo,
+                                   __in BOOLEAN Wait);
 
-VOID DokanCompleteSetInformation(__in PIRP_ENTRY IrpEntry,
-                                 __in PEVENT_INFORMATION EventInfo);
+NTSTATUS DokanCompleteSetInformation(__in PIRP_ENTRY IrpEntry,
+                                 __in PEVENT_INFORMATION EventInfo,
+                                 __in BOOLEAN Wait);
 
-VOID DokanCompleteCreate(__in PIRP_ENTRY IrpEntry,
-                         __in PEVENT_INFORMATION EventInfo);
+NTSTATUS DokanCompleteCreate(__in PIRP_ENTRY IrpEntry,
+                         __in PEVENT_INFORMATION EventInfo,
+                         __in BOOLEAN Wait);
 
-VOID DokanCompleteCleanup(__in PIRP_ENTRY IrpEntry,
-                          __in PEVENT_INFORMATION EventInfo);
+NTSTATUS DokanCompleteCleanup(__in PIRP_ENTRY IrpEntry,
+                          __in PEVENT_INFORMATION EventInfo,
+                          __in BOOLEAN Wait);
 
-VOID DokanCompleteLock(__in PIRP_ENTRY IrpEntry,
-                       __in PEVENT_INFORMATION EventInfo);
+NTSTATUS DokanCompleteLock(__in PIRP_ENTRY IrpEntry,
+                       __in PEVENT_INFORMATION EventInfo,
+                       __in BOOLEAN Wait);
 
-VOID DokanCompleteQueryVolumeInformation(__in PIRP_ENTRY IrpEntry,
+NTSTATUS DokanCompleteQueryVolumeInformation(__in PIRP_ENTRY IrpEntry,
                                          __in PEVENT_INFORMATION EventInfo,
-                                         __in PDEVICE_OBJECT DeviceObject);
+                                         __in PDEVICE_OBJECT DeviceObject,
+                                         __in BOOLEAN Wait);
 
-VOID DokanCompleteFlush(__in PIRP_ENTRY IrpEntry,
-                        __in PEVENT_INFORMATION EventInfo);
+NTSTATUS DokanCompleteFlush(__in PIRP_ENTRY IrpEntry,
+                        __in PEVENT_INFORMATION EventInfo,
+                        __in BOOLEAN Wait);
 
-VOID DokanCompleteQuerySecurity(__in PIRP_ENTRY IrpEntry,
-                                __in PEVENT_INFORMATION EventInfo);
+NTSTATUS DokanCompleteQuerySecurity(__in PIRP_ENTRY IrpEntry,
+                                __in PEVENT_INFORMATION EventInfo,
+                                __in BOOLEAN Wait);
 
-VOID DokanCompleteSetSecurity(__in PIRP_ENTRY IrpEntry,
-                              __in PEVENT_INFORMATION EventInfo);
+NTSTATUS DokanCompleteSetSecurity(__in PIRP_ENTRY IrpEntry,
+                              __in PEVENT_INFORMATION EventInfo,
+                              __in BOOLEAN Wait);
 
 VOID DokanNoOpRelease(__in PVOID Fcb);
 
@@ -615,7 +642,8 @@ DokanCreateGlobalDiskDevice(__in PDRIVER_OBJECT DriverObject,
 
 NTSTATUS
 DokanCreateDiskDevice(__in PDRIVER_OBJECT DriverObject, __in ULONG MountId,
-                      __in PWCHAR MountPoint, __in PWCHAR UNCName,
+                      __in PWCHAR MountPoint, __in PWCHAR UNCName, 
+                      __in ULONG sessionID,
                       __in PWCHAR BaseGuid, __in PDOKAN_GLOBAL DokanGlobal,
                       __in DEVICE_TYPE DeviceType,
                       __in ULONG DeviceCharacteristics,
@@ -702,6 +730,15 @@ NTSTATUS DokanSendVolumeArrivalNotification(PUNICODE_STRING DeviceName);
 VOID FlushFcb(__in PDokanFCB fcb, __in_opt PFILE_OBJECT fileObject);
 BOOLEAN StartsWith(__in PUNICODE_STRING str, __in PUNICODE_STRING prefix);
 
+PDEVICE_ENTRY 
+FindDeviceForDeleteBySessionId(PDOKAN_GLOBAL dokanGlobal, ULONG sessionId);
+
+BOOLEAN DeleteMountPointSymbolicLink(__in PUNICODE_STRING MountPoint);
+
+ULONG GetCurrentSessionId(__in PIRP Irp);
+
+VOID RemoveSessionDevices(__in PDOKAN_GLOBAL dokanGlobal, __in ULONG sessionId);
+
 static UNICODE_STRING sddl = RTL_CONSTANT_STRING(
     L"D:P(A;;GA;;;SY)(A;;GRGWGX;;;BA)(A;;GRGWGX;;;WD)(A;;GRGX;;;RC)");
 
@@ -731,5 +768,8 @@ __inline VOID DokanClearFlag(PULONG Flags, ULONG FlagBit) {
 #define DokanCCBFlagsIsSet DokanFCBFlagsIsSet
 #define DokanCCBFlagsSetBit DokanFCBFlagsSetBit
 #define DokanCCBFlagsClearBit DokanFCBFlagsClearBit
+
+ULONG DokanSearchWcharinUnicodeStringWithUlong(__in PUNICODE_STRING inputPUnicodeString, __in WCHAR targetWchar,
+	__in ULONG offsetPosition, __in int isIgnoreTargetWchar);
 
 #endif // DOKAN_H_

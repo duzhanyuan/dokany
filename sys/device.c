@@ -1,7 +1,7 @@
 /*
   Dokan : user-mode file system library for Windows
 
-  Copyright (C) 2015 - 2017 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
+  Copyright (C) 2015 - 2018 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
   Copyright (C) 2007 - 2011 Hiroki Asakawa <info@dokan-dev.net>
 
   http://dokan-dev.github.io
@@ -74,6 +74,10 @@ GlobalDeviceControl(__in PDEVICE_OBJECT DeviceObject, __in PIRP Irp) {
     break;
   case IOCTL_SERVICE_WAIT:
     status = DokanRegisterPendingIrpForService(DeviceObject, Irp);
+    break;
+  case IOCTL_MOUNTPOINT_CLEANUP:
+    RemoveSessionDevices(dokanGlobal, GetCurrentSessionId(Irp));
+    status = STATUS_SUCCESS;
     break;
   case IOCTL_SET_DEBUG_MODE:
     if (irpSp->Parameters.DeviceIoControl.InputBufferLength >= sizeof(ULONG)) {
@@ -424,7 +428,7 @@ DiskDeviceControl(__in PDEVICE_OBJECT DeviceObject, __in PIRP Irp) {
     RtlZeroMemory(mountdevName, outputLength);
     mountdevName->NameLength = deviceName->Length;
 
-    if (sizeof(USHORT) + mountdevName->NameLength < outputLength) {
+    if (sizeof(USHORT) + mountdevName->NameLength <= outputLength) {
       RtlCopyMemory((PCHAR)mountdevName->Name, deviceName->Buffer,
                     mountdevName->NameLength);
       Irp->IoStatus.Information = sizeof(USHORT) + mountdevName->NameLength;
@@ -450,7 +454,7 @@ DiskDeviceControl(__in PDEVICE_OBJECT DeviceObject, __in PIRP Irp) {
 
     uniqueId->UniqueIdLength = dcb->DiskDeviceName->Length;
 
-    if (sizeof(USHORT) + uniqueId->UniqueIdLength < outputLength) {
+    if (sizeof(USHORT) + uniqueId->UniqueIdLength <= outputLength) {
       RtlCopyMemory((PCHAR)uniqueId->UniqueId, dcb->DiskDeviceName->Buffer,
                     uniqueId->UniqueIdLength);
       Irp->IoStatus.Information =
@@ -482,7 +486,7 @@ DiskDeviceControl(__in PDEVICE_OBJECT DeviceObject, __in PIRP Irp) {
         linkName->UseOnlyIfThereAreNoOtherLinks = FALSE;
         linkName->NameLength = dcb->MountPoint->Length;
 
-        if (sizeof(USHORT) + linkName->NameLength < outputLength) {
+        if (sizeof(USHORT) + linkName->NameLength <= outputLength) {
           RtlCopyMemory((PCHAR)linkName->Name, dcb->MountPoint->Buffer,
                         linkName->NameLength);
           Irp->IoStatus.Information =
@@ -556,6 +560,7 @@ DiskDeviceControl(__in PDEVICE_OBJECT DeviceObject, __in PIRP Irp) {
               RtlCopyMemory(dokanControl->UNCName, dcb->UNCName->Buffer,
                             dcb->UNCName->Length);
             }
+            dokanControl->SessionId = dcb->SessionId;
             mountEntry = FindMountEntry(dcb->Global, dokanControl, TRUE);
             ExFreePool(dokanControl);
             if (mountEntry != NULL) {

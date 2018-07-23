@@ -1,7 +1,7 @@
 /*
 Dokan : user-mode file system library for Windows
 
-Copyright (C) 2015 - 2017 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
+Copyright (C) 2015 - 2018 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
 Copyright (C) 2007 - 2011 Hiroki Asakawa <info@dokan-dev.net>
 
 http://dokan-dev.github.io
@@ -553,7 +553,6 @@ DWORD APIENTRY NPEnumResource(__in HANDLE Enum, __in LPDWORD Count,
   ULONG cEntriesCopied = 0;
   PWCHAR pStrings = (PWCHAR)((PBYTE)Buffer + *BufferSize);
   PWCHAR pDst;
-
   ULONG nbRead = 0;
   DOKAN_CONTROL dokanControl[DOKAN_MAX_INSTANCES];
   if (!DokanGetMountPointList(dokanControl, DOKAN_MAX_INSTANCES, TRUE,
@@ -562,7 +561,22 @@ DWORD APIENTRY NPEnumResource(__in HANDLE Enum, __in LPDWORD Count,
     return WN_NO_MORE_ENTRIES;
   }
 
+  DWORD processId = GetCurrentProcessId();
+  DWORD sessionId = 0;
+  BOOL  isBelongToCurrentSession = TRUE;
+  ProcessIdToSessionId(processId, &sessionId);
+  DbgPrintW(L"NPEnumResource CurrentSesstionID:%d\n", sessionId);
+  DbgPrintW(L"NPEnumResource nbRead:%d\n", nbRead);
+
   while (cEntriesCopied < *Count && pCtx->index < nbRead) {
+    DbgPrintW(L"NPEnumResource SesstionID:%d\n", dokanControl[pCtx->index].SessionId);
+    isBelongToCurrentSession = TRUE;
+    if (sessionId != dokanControl[pCtx->index].SessionId && -1 != dokanControl[pCtx->index].SessionId)
+    {
+      isBelongToCurrentSession = FALSE;
+      pCtx->index++;
+      continue;
+    }
     if (wcscmp(dokanControl[pCtx->index].UNCName, L"") == 0) {
       DbgPrintW(L"NPEnumResource: end reached at index %d\n", pCtx->index);
       break;
@@ -572,10 +586,10 @@ DWORD APIENTRY NPEnumResource(__in HANDLE Enum, __in LPDWORD Count,
       DbgPrintW(L"NPEnumResource: RESOURCE_CONNECTED\n");
 
       if (lstrlenW(dokanControl[pCtx->index].MountPoint) >
-          12 /* \DosDevices\C: */) {
+        12 /* \DosDevices\C: */) {
         /* How many bytes is needed for the current NETRESOURCE data. */
         ULONG cbRemoteName =
-            (lstrlenW(dokanControl[pCtx->index].UNCName) + 1) * sizeof(WCHAR);
+          (lstrlenW(dokanControl[pCtx->index].UNCName) + 1) * sizeof(WCHAR);
         cbEntry = sizeof(NETRESOURCE);
         cbEntry += 3 * sizeof(WCHAR);            /* C:\0*/
         cbEntry += sizeof(WCHAR) + cbRemoteName; /* Leading \. */
@@ -614,7 +628,7 @@ DWORD APIENTRY NPEnumResource(__in HANDLE Enum, __in LPDWORD Count,
         CopyMemory(pDst, DOKAN_NP_NAME, sizeof(DOKAN_NP_NAME));
 
         DbgPrintW(L"NPEnumResource: lpRemoteName: %ls\n",
-                  pNetResource->lpRemoteName);
+          pNetResource->lpRemoteName);
 
         cEntriesCopied++;
         pNetResource++;
@@ -628,14 +642,14 @@ DWORD APIENTRY NPEnumResource(__in HANDLE Enum, __in LPDWORD Count,
         WCHAR *lpServerName = NULL;
         ULONG ulServerName = 0;
         parseServerName(&dokanControl[pCtx->index].UNCName[1], &lpServerName,
-                        &ulServerName);
+          &ulServerName);
 
         /* Return server.
         * Determine the space needed for this entry.
         */
         cbEntry = sizeof(NETRESOURCE);
         cbEntry +=
-            (2 + ulServerName) * sizeof(WCHAR); /* \\ + the server name */
+          (2 + ulServerName) * sizeof(WCHAR); /* \\ + the server name */
         cbEntry += sizeof(DOKAN_NP_NAME);
 
         if (cbEntry > cbRemaining) {
@@ -673,7 +687,7 @@ DWORD APIENTRY NPEnumResource(__in HANDLE Enum, __in LPDWORD Count,
       } else {
         /* How many bytes is needed for the current NETRESOURCE data. */
         ULONG cbRemoteName =
-            (lstrlenW(dokanControl[pCtx->index].UNCName) + 1) * sizeof(WCHAR);
+          (lstrlenW(dokanControl[pCtx->index].UNCName) + 1) * sizeof(WCHAR);
         cbEntry = sizeof(NETRESOURCE);
         /* Remote name: \\ + server + \ + name. */
         cbEntry += 1 * sizeof(WCHAR) + cbRemoteName;
@@ -708,7 +722,7 @@ DWORD APIENTRY NPEnumResource(__in HANDLE Enum, __in LPDWORD Count,
         CopyMemory(pDst, DOKAN_NP_NAME, sizeof(DOKAN_NP_NAME));
 
         DbgPrintW(L"NPEnumResource: lpRemoteName: %ls\n",
-                  pNetResource->lpRemoteName);
+          pNetResource->lpRemoteName);
 
         cEntriesCopied++;
         pNetResource++;

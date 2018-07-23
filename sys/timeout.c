@@ -1,7 +1,7 @@
 /*
   Dokan : user-mode file system library for Windows
 
-  Copyright (C) 2015 - 2017 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
+  Copyright (C) 2015 - 2018 Adrien J. <liryna.stark@gmail.com> and Maxime C. <maxime@islog.com>
   Copyright (C) 2007 - 2011 Hiroki Asakawa <info@dokan-dev.net>
 
   http://dokan-dev.github.io
@@ -53,8 +53,9 @@ VOID DokanUnmount(__in PDokanDCB Dcb) {
   }
 
   deviceNamePos = Dcb->SymbolicLinkName->Length / sizeof(WCHAR) - 1;
-  for (; Dcb->SymbolicLinkName->Buffer[deviceNamePos] != L'\\'; --deviceNamePos)
-    ;
+  deviceNamePos = DokanSearchWcharinUnicodeStringWithUlong(
+      Dcb->SymbolicLinkName, L'\\', deviceNamePos, 0);
+
   RtlStringCchCopyW(eventContext->Operation.Unmount.DeviceName,
                     sizeof(eventContext->Operation.Unmount.DeviceName) /
                         sizeof(WCHAR),
@@ -98,7 +99,7 @@ VOID DokanCheckKeepAlive(__in PDokanDCB Dcb) {
 
     ExReleaseResourceLite(&Dcb->Resource);
 
-    DDbgPrint("  Timeout, umount\n");
+    DDbgPrint("  Timeout reached so perform an umount\n");
 
     if (IsUnmountPendingVcb(vcb)) {
       DDbgPrint("  Volume is not mounted\n");
@@ -198,7 +199,8 @@ ReleaseTimeoutPendingIrp(__in PDokanDCB Dcb) {
 }
 
 NTSTATUS
-DokanResetPendingIrpTimeout(__in PDEVICE_OBJECT DeviceObject, _Inout_ PIRP Irp) {
+DokanResetPendingIrpTimeout(__in PDEVICE_OBJECT DeviceObject,
+                            _Inout_ PIRP Irp) {
   KIRQL oldIrql;
   PLIST_ENTRY thisEntry, nextEntry, listHead;
   PIRP_ENTRY irpEntry;
